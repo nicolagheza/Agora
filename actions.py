@@ -95,85 +95,135 @@ def _handle_eat(agent: VillagerAgent, action: dict, ctx: ActionContext) -> World
 
 
 def _handle_sell(agent: VillagerAgent, action: dict, ctx: ActionContext) -> WorldEvent:
-    target = action.get("target", "")
+    target = action.get("target", "").strip()
     location = ctx.world.agent_locations[agent.name]
     raw_detail = action.get("detail", "")
     trade = _parse_trade_detail(raw_detail)
 
     if not trade:
-        reason = f"bad detail format '{raw_detail}'"
-    elif not target or target not in ctx.agent_map:
-        reason = f"unknown target '{target}'"
-    elif ctx.world.agent_locations.get(target) != location:
-        target_loc = ctx.world.agent_locations.get(target, "unknown")
-        reason = f"{target} is at {target_loc}, not {location}"
-    else:
-        item, qty, price = trade
-        if agent.inventory.get(item, 0) < qty:
-            reason = f"not enough {item} (have {agent.inventory.get(item, 0)}, need {qty})"
-        else:
-            buyer_agent = ctx.agent_map.get(target)
-            # Path 1: fulfill a pending buy request
-            matching_request = next(
-                (r for r in ctx.world.pending_requests
-                 if r.buyer == target and r.seller == agent.name
-                 and r.item == item and r.quantity == qty and r.price == price),
-                None,
-            )
-            if matching_request and buyer_agent and buyer_agent.inventory.get("coins", 0) >= price:
-                _decrement_inventory(buyer_agent.inventory, "coins", price)
-                _increment_inventory(buyer_agent.inventory, item, qty)
-                _increment_inventory(agent.inventory, "coins", price)
-                _decrement_inventory(agent.inventory, item, qty)
-                ctx.world.pending_requests.remove(matching_request)
-                return WorldEvent(
-                    ctx.world.day, ctx.world.phase, agent.name, ActionType.TRADE,
-                    f"TRADE: {agent.name} sold {qty}x{item} to {target} for {price} coins (fulfilled request)", location,
-                )
-            # Path 2: post a sell offer
-            ctx.world.pending_offers.append(TradeOffer(
-                seller=agent.name,
-                buyer=target,
-                item=item,
-                quantity=qty,
-                price=price,
-                expires_tick=ctx.world.current_tick() + 3,
-            ))
-            return WorldEvent(
-                ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
-                f"{agent.name} offers {qty}x{item} to {target} for {price} coins", location,
-            )
-
-    return WorldEvent(
-        ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
-        f"{agent.name}'s sell offer failed: {reason}", location,
-    )
-
-
-def _handle_buy(agent: VillagerAgent, action: dict, ctx: ActionContext) -> WorldEvent:
-    target = action.get("target", "")
-    location = ctx.world.agent_locations[agent.name]
-    raw_detail = action.get("detail", "")
-    trade = _parse_trade_detail(raw_detail)
-
-    if not trade or not target:
         return WorldEvent(
-            ctx.world.day, ctx.world.phase, agent.name, ActionType.BUY,
-            f"{agent.name}'s buy failed: bad detail or missing target", location,
+            ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
+            f"{agent.name}'s sell offer failed: bad detail format '{raw_detail}'", location,
         )
 
     item, qty, price = trade
 
-    # Path 1: accept an existing sell offer
+    # --- Market offer path (no target or "market") — no co-presence needed ---
+    if not target or target.lower() == "market":
+        if agent.inventory.get(item, 0) < qty:
+            return WorldEvent(
+                ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
+                f"{agent.name}'s market offer failed: not enough {item} (have {agent.inventory.get(item, 0)}, need {qty})", location,
+            )
+        ctx.world.pending_offers.append(TradeOffer(
+            seller=agent.name,
+            buyer=None,
+            item=item,
+            quantity=qty,
+            price=price,
+            expires_tick=ctx.world.current_tick() + 10,
+        ))
+        return WorldEvent(
+            ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
+            f"{agent.name} posts open market offer: {qty}x{item} for {price} coins", location,
+        )
+
+    # --- P2P path (specific target) ---
+    if target not in ctx.agent_map:
+        return WorldEvent(
+            ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
+            f"{agent.name}'s sell offer failed: unknown target '{target}'", location,
+        )
+    if ctx.world.agent_locations.get(target) != location:
+        target_loc = ctx.world.agent_locations.get(target, "unknown")
+        return WorldEvent(
+            ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
+            f"{agent.name}'s sell offer failed: {target} is at {target_loc}, not {location}", location,
+        )
+    if agent.inventory.get(item, 0) < qty:
+        return WorldEvent(
+            ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
+            f"{agent.name}'s sell offer failed: not enough {item} (have {agent.inventory.get(item, 0)}, need {qty})", location,
+        )
+
+    buyer_agent = ctx.agent_map.get(target)
+    # Path 1: fulfill a pending buy request (targeted or open market)
+    matching_request = next(
+        (r for r in ctx.world.pending_requests
+         if r.buyer == target and (r.seller == agent.name or r.seller is None)
+         and r.item == item and r.quantity == qty and r.price == price),
+        None,
+    )
+    if matching_request and buyer_agent and buyer_agent.inventory.get("coins", 0) >= price:
+        _decrement_inventory(buyer_agent.inventory, "coins", price)
+        _increment_inventory(buyer_agent.inventory, item, qty)
+        _increment_inventory(agent.inventory, "coins", price)
+        _decrement_inventory(agent.inventory, item, qty)
+        ctx.world.pending_requests.remove(matching_request)
+        return WorldEvent(
+            ctx.world.day, ctx.world.phase, agent.name, ActionType.TRADE,
+            f"TRADE: {agent.name} sold {qty}x{item} to {target} for {price} coins (fulfilled request)", location,
+        )
+    # Path 2: post a P2P sell offer
+    ctx.world.pending_offers.append(TradeOffer(
+        seller=agent.name,
+        buyer=target,
+        item=item,
+        quantity=qty,
+        price=price,
+        expires_tick=ctx.world.current_tick() + 10,
+    ))
+    return WorldEvent(
+        ctx.world.day, ctx.world.phase, agent.name, ActionType.SELL,
+        f"{agent.name} offers {qty}x{item} to {target} for {price} coins", location,
+    )
+
+
+def _handle_buy(agent: VillagerAgent, action: dict, ctx: ActionContext) -> WorldEvent:
+    target = action.get("target", "").strip()
+    location = ctx.world.agent_locations[agent.name]
+    raw_detail = action.get("detail", "")
+    trade = _parse_trade_detail(raw_detail)
+
+    if not trade:
+        return WorldEvent(
+            ctx.world.day, ctx.world.phase, agent.name, ActionType.BUY,
+            f"{agent.name}'s buy failed: bad detail format '{raw_detail}'", location,
+        )
+
+    item, qty, price = trade
+
+    # --- Market request path (no target or "market") — no co-presence needed ---
+    if not target or target.lower() == "market":
+        if agent.inventory.get("coins", 0) < price:
+            return WorldEvent(
+                ctx.world.day, ctx.world.phase, agent.name, ActionType.BUY,
+                f"{agent.name}'s market request failed: not enough coins (have {agent.inventory.get('coins', 0)}, need {price})", location,
+            )
+        ctx.world.pending_requests.append(BuyRequest(
+            buyer=agent.name,
+            seller=None,
+            item=item,
+            quantity=qty,
+            price=price,
+            expires_tick=ctx.world.current_tick() + 10,
+        ))
+        return WorldEvent(
+            ctx.world.day, ctx.world.phase, agent.name, ActionType.BUY,
+            f"{agent.name} posts open market request: {qty}x{item} for {price} coins", location,
+        )
+
+    # --- P2P path (specific target) ---
+
+    # Path 1: accept an existing sell offer (targeted or open market) — no co-presence needed
     matching_offer = next(
         (o for o in ctx.world.pending_offers
-         if o.seller == target and o.buyer == agent.name
+         if o.seller == target and (o.buyer == agent.name or o.buyer is None)
          and o.item == item and o.quantity == qty and o.price == price),
         None,
     )
     seller = ctx.agent_map.get(target)
     if (matching_offer and seller
-            and ctx.world.agent_locations.get(target) == location
             and agent.inventory.get("coins", 0) >= price
             and seller.inventory.get(item, 0) >= qty):
         _decrement_inventory(agent.inventory, "coins", price)
@@ -186,7 +236,7 @@ def _handle_buy(agent: VillagerAgent, action: dict, ctx: ActionContext) -> World
             f"TRADE: {agent.name} bought {qty}x{item} from {target} for {price} coins", location,
         )
 
-    # Path 2: post a buy request
+    # Path 2: post a P2P buy request (requires co-presence)
     if target not in ctx.agent_map:
         reason = f"unknown target '{target}'"
     elif ctx.world.agent_locations.get(target) != location:
@@ -201,7 +251,7 @@ def _handle_buy(agent: VillagerAgent, action: dict, ctx: ActionContext) -> World
             item=item,
             quantity=qty,
             price=price,
-            expires_tick=ctx.world.current_tick() + 3,
+            expires_tick=ctx.world.current_tick() + 10,
         ))
         return WorldEvent(
             ctx.world.day, ctx.world.phase, agent.name, ActionType.BUY,

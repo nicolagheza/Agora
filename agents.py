@@ -32,8 +32,8 @@ Available actions:
 - REST: Take a break and recover energy. Recovers more during NIGHT.
 - STAY: Remain at your current location, observing and available. Small energy recovery.
 - EAT: Consume 1 food from your inventory to restore hunger. No target or detail needed.
-- SELL: Offer items to a specific agent at your location. Set target=<their name> and detail="item:qty:price" (e.g. "food:2:6" = offer 2 food for 6 coins). If they have an open buy request for those exact terms, the trade completes immediately; otherwise they must BUY to accept.
-- BUY: Request or accept a trade with a specific agent at your location. Set target=<agent name> and detail="item:qty:price". If they have an open sell offer matching those terms, the trade completes immediately; otherwise a buy request is posted for them to fulfill with SELL.
+- SELL: Offer items for sale. For a P2P offer to someone at your location, set target=<their name>. For an open market offer that anyone can accept from anywhere, set target="" or target="market". Either way, set detail="item:qty:price" (e.g. "food:2:6" = 2 food for 6 coins). If the counterparty has a matching buy request, the trade completes immediately; otherwise your offer is posted.
+- BUY: Request or accept a trade. To accept an existing sell offer from a specific agent (no co-presence needed), set target=<their name> and detail matching their offer — completes immediately. To post an open market request that anyone can fulfill from anywhere, set target="" or target="market". To post a P2P buy request, set target=<agent name at your location> and detail="item:qty:price".
 
 You have four needs (0-100, higher is better):
 - Hunger: Decays over time. Use EAT to restore it when you have food.
@@ -44,7 +44,8 @@ You have four needs (0-100, higher is better):
 When a need is low, prioritize restoring it.
 When your sociality is low, consider moving to social locations like the Tavern or Town Square to meet others.
 When hunger is low and you have food, use EAT.
-To trade: discuss terms in conversation, then either SELL to make an offer (other agent accepts with BUY) or BUY to make a request (other agent fulfills with SELL). The first to act posts the intent; the second completes it.
+To trade P2P: both agents must be at the same location to post a new offer. Once posted, the counterparty can accept with BUY from anywhere — no co-presence needed for acceptance.
+To trade via market: use target="" with SELL or BUY to post an open order — no meeting required, any agent can accept from anywhere. Use market orders when the person you need is far away.
 
 Guidelines:
 - Stay in character as {name} the {role} at all times.
@@ -168,22 +169,34 @@ class VillagerAgent:
         my_offers = [o for o in world.pending_offers if o.seller == self.name]
         requests_to_me = [r for r in world.pending_requests if r.seller == self.name]
         my_requests = [r for r in world.pending_requests if r.buyer == self.name]
+        open_offers = [o for o in world.pending_offers if o.buyer is None and o.seller != self.name]
+        open_requests = [r for r in world.pending_requests if r.seller is None and r.buyer != self.name]
         if offers_to_me:
-            lines.append("Pending sell offers TO YOU (use BUY to accept):")
+            lines.append("Pending sell offers TO YOU (use BUY target=<seller> to accept from anywhere):")
             for o in offers_to_me:
-                lines.append(f"  {o.seller} offers {o.quantity}x{o.item} for {o.price} coins [expires this tick]")
+                lines.append(f"  {o.seller} offers {o.quantity}x{o.item} for {o.price} coins")
         if my_offers:
             lines.append("Your pending sell offers:")
             for o in my_offers:
-                lines.append(f"  Selling {o.quantity}x{o.item} to {o.buyer} for {o.price} coins [expires this tick]")
+                buyer_label = o.buyer if o.buyer else "market (open)"
+                lines.append(f"  Selling {o.quantity}x{o.item} to {buyer_label} for {o.price} coins")
         if requests_to_me:
-            lines.append("Buy requests FROM others (use SELL to fulfill):")
+            lines.append("Buy requests FROM others (use SELL target=<buyer> to fulfill from anywhere):")
             for r in requests_to_me:
-                lines.append(f"  {r.buyer} wants to buy {r.quantity}x{r.item} for {r.price} coins [expires this tick]")
+                lines.append(f"  {r.buyer} wants to buy {r.quantity}x{r.item} for {r.price} coins")
         if my_requests:
             lines.append("Your pending buy requests:")
             for r in my_requests:
-                lines.append(f"  Requested {r.quantity}x{r.item} from {r.seller} for {r.price} coins [expires this tick]")
+                seller_label = r.seller if r.seller else "market (open)"
+                lines.append(f"  Requested {r.quantity}x{r.item} from {seller_label} for {r.price} coins")
+        if open_offers:
+            lines.append("Open market sell offers (use BUY target=<seller name> to accept from anywhere):")
+            for o in open_offers:
+                lines.append(f"  {o.seller} offers {o.quantity}x{o.item} for {o.price} coins [open market]")
+        if open_requests:
+            lines.append("Open market buy requests (use SELL target=<buyer name> to fulfill from anywhere):")
+            for r in open_requests:
+                lines.append(f"  {r.buyer} wants {r.quantity}x{r.item} for {r.price} coins [open market]")
 
         if self.role == "Merchant" and location_name == "Market" and world.agent_inventories:
             lines.append("Agent inventories (market insight):")

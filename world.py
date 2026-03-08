@@ -51,7 +51,7 @@ class WorldEvent:
 @dataclass
 class TradeOffer:
     seller: str
-    buyer: str        # specific target — only this agent can BUY
+    buyer: str | None  # specific target, or None = open market offer (any agent can BUY)
     item: str
     quantity: int
     price: int        # in coins
@@ -61,7 +61,7 @@ class TradeOffer:
 @dataclass
 class BuyRequest:
     buyer: str
-    seller: str       # specific target — only this agent can SELL to fulfill
+    seller: str | None  # specific target, or None = open market request (any agent can SELL)
     item: str
     quantity: int
     price: int        # price willing to pay

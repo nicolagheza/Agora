@@ -34,7 +34,7 @@ def expire_offers(world: World, log_fn: Callable[[WorldEvent], None]) -> None:
     for o in expired_offers:
         event = WorldEvent(
             world.day, world.phase, o.seller, ActionType.OFFER_EXPIRED,
-            f"{o.seller}'s offer to {o.buyer} ({o.quantity}x{o.item}) expired",
+            f"{o.seller}'s offer to {o.buyer or 'market'} ({o.quantity}x{o.item}) expired",
             world.agent_locations.get(o.seller, ""),
         )
         world.add_event(event)
@@ -46,7 +46,7 @@ def expire_offers(world: World, log_fn: Callable[[WorldEvent], None]) -> None:
     for r in expired_requests:
         event = WorldEvent(
             world.day, world.phase, r.buyer, ActionType.REQUEST_EXPIRED,
-            f"{r.buyer}'s buy request to {r.seller} ({r.quantity}x{r.item}) expired",
+            f"{r.buyer}'s buy request to {r.seller or 'market'} ({r.quantity}x{r.item}) expired",
             world.agent_locations.get(r.buyer, ""),
         )
         world.add_event(event)

@@ -3,31 +3,6 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "agentura"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "agno" },
-    { name = "aiosqlite" },
-    { name = "openai" },
-    { name = "pygame" },
-    { name = "python-dotenv" },
-    { name = "rich" },
-    { name = "sqlalchemy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agno" },
-    { name = "aiosqlite" },
-    { name = "openai" },
-    { name = "pygame", specifier = ">=2.6.1" },
-    { name = "python-dotenv" },
-    { name = "rich" },
-    { name = "sqlalchemy" },
-]
-
-[[package]]
 name = "agno"
 version = "2.5.8"
 source = { registry = "https://pypi.org/simple" }
@@ -49,6 +24,31 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f0/9c/93bbc5f01b14d3dd1c22ef9ffe88251ba335a53e4ea44f5417167a2477ce/agno-2.5.8.tar.gz", hash = "sha256:52ff13f34b805e484e1614fd7099146c629abd2f3087f761e2c948544731b91a", size = 1760789, upload-time = "2026-03-06T15:09:20.068Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/aa/f7/0e5e646ac719a6e20bbcdb7486f5fbf36baa7a47320e7c144c78d23c6ddb/agno-2.5.8-py3-none-any.whl", hash = "sha256:d01c44f2c622651d9735b622e4bc6a584931d18a7711d12ca87cdd06f9d8a578", size = 2100283, upload-time = "2026-03-06T15:09:10.224Z" },
+]
+
+[[package]]
+name = "agora"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "agno" },
+    { name = "aiosqlite" },
+    { name = "openai" },
+    { name = "pygame" },
+    { name = "python-dotenv" },
+    { name = "rich" },
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agno" },
+    { name = "aiosqlite" },
+    { name = "openai" },
+    { name = "pygame", specifier = ">=2.6.1" },
+    { name = "python-dotenv" },
+    { name = "rich" },
+    { name = "sqlalchemy" },
 ]
 
 [[package]]
