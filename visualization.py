@@ -159,7 +159,9 @@ class WorldSnapshot:
     day: int
     phase: str
     agent_snapshots: tuple          # tuple[AgentSnapshot, ...]
-    recent_events: tuple            # tuple[(action_str, detail_str), ...]
+    recent_events: tuple            # tuple[(day, phase, actor, action, detail, location), ...]
+    market_offers: tuple            # tuple[(seller, buyer_or_None, item, qty, price), ...]
+    market_requests: tuple          # tuple[(buyer, seller_or_None, item, qty, price), ...]
     tick_timestamp: float           # time.monotonic() when published
     tick_duration: float            # sim.tick_delay, for lerp math
 
@@ -192,8 +194,16 @@ def build_snapshot(
         for a in agents
     )
     recent_events = tuple(
-        (str(e.action), e.detail)
+        (e.day, str(e.phase.value), e.actor, str(e.action), e.detail, e.location)
         for e in world.events[-10:]
+    )
+    market_offers = tuple(
+        (o.seller, o.buyer, o.item, o.quantity, o.price)
+        for o in world.pending_offers
+    )
+    market_requests = tuple(
+        (r.buyer, r.seller, r.item, r.quantity, r.price)
+        for r in world.pending_requests
     )
     return WorldSnapshot(
         village_name=world.village_name,
@@ -201,6 +211,8 @@ def build_snapshot(
         phase=world.phase.value,
         agent_snapshots=agent_snaps,
         recent_events=recent_events,
+        market_offers=market_offers,
+        market_requests=market_requests,
         tick_timestamp=time.monotonic(),
         tick_duration=tick_delay,
     )
@@ -227,6 +239,9 @@ class GameRenderer:
         self._stop = threading.Event()
         self._paused = threading.Event()
         self._inspected_agent: str | None = None
+        self._inspected_event: int | None = None
+        self._show_market: bool = False
+        self._event_rects: list[pygame.Rect] = []
         self._screen: pygame.Surface | None = None
         self._fonts: dict[str, pygame.font.Font] = {}
 
@@ -286,14 +301,22 @@ class GameRenderer:
             except Exception:
                 self._fonts[size_name] = pygame.font.Font(None, pt + 8)
 
+    def _any_overlay_open(self) -> bool:
+        return bool(self._inspected_agent or self._inspected_event is not None or self._show_market)
+
+    def _close_all_overlays(self) -> None:
+        self._inspected_agent = None
+        self._inspected_event = None
+        self._show_market = False
+
     def _handle_events(self) -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self._stop.set()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if self._inspected_agent:
-                        self._inspected_agent = None
+                    if self._any_overlay_open():
+                        self._close_all_overlays()
                     else:
                         self._stop.set()
                 elif event.key == pygame.K_p:
@@ -301,14 +324,32 @@ class GameRenderer:
                         self._paused.clear()
                     else:
                         self._paused.set()
+                elif event.key == pygame.K_m:
+                    if self._show_market:
+                        self._show_market = False
+                    else:
+                        self._close_all_overlays()
+                        self._show_market = True
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 snap = self._get_snapshot()
-                if self._inspected_agent:
-                    self._inspected_agent = None
+                if self._any_overlay_open():
+                    self._close_all_overlays()
                 elif snap:
-                    self._inspected_agent = self._get_agent_at_pixel(
-                        event.pos[0], event.pos[1], snap
-                    )
+                    # Agent on the map?
+                    agent = self._get_agent_at_pixel(event.pos[0], event.pos[1], snap)
+                    if agent:
+                        self._inspected_agent = agent
+                    elif event.pos[0] < MAP_W:
+                        # Market building click?
+                        market_rect = pygame.Rect(*_BUILDING_RECT_DEFS["Market"])
+                        if market_rect.collidepoint(event.pos):
+                            self._show_market = True
+                    else:
+                        # Event row click in sidebar?
+                        for i, rect in enumerate(self._event_rects):
+                            if rect.collidepoint(event.pos) and i < len(snap.recent_events):
+                                self._inspected_event = i
+                                break
 
     # -- Drawing ------------------------------------------------------------
 
@@ -336,6 +377,12 @@ class GameRenderer:
 
         if self._inspected_agent and snap:
             self._draw_inspect_overlay(snap)
+
+        if self._inspected_event is not None and snap:
+            self._draw_event_overlay(snap)
+
+        if self._show_market and snap:
+            self._draw_market_overlay(snap)
 
         if self._paused.is_set():
             self._draw_pause_banner()
@@ -472,21 +519,26 @@ class GameRenderer:
 
         # Events
         events_y = sep_y + 10
-        events_label = self._fonts["bold"].render("Events", True, (180, 180, 220))
+        events_label = self._fonts["bold"].render("Events  (click to expand)", True, (180, 180, 220))
         screen.blit(events_label, (x0, events_y))
         events_y += 22
 
-        for action_type, detail in snap.recent_events:
+        self._event_rects = []
+        for day, phase, actor, action_type, detail, location in snap.recent_events:
             color = EVENT_COLORS.get(action_type, EVENT_DEFAULT_COLOR)
             truncated = detail[:56] + "…" if len(detail) > 56 else detail
             surf = self._fonts["tiny"].render(truncated, True, color)
+            row_rect = pygame.Rect(x0 - 2, events_y - 1, w + 4, 18)
+            self._event_rects.append(row_rect)
+            # Subtle highlight on hover/clickable rows
+            pygame.draw.rect(screen, (35, 35, 55), row_rect, border_radius=2)
             screen.blit(surf, (x0, events_y))
             events_y += 20
             if events_y > WINDOW_H - 28:
                 break
 
         # Key hints at very bottom
-        hints = "[P] Pause    [Esc] Quit    [Click] Inspect"
+        hints = "[P] Pause  [M] Market  [Esc] Quit  [Click] Inspect"
         hint_surf = self._fonts["tiny"].render(hints, True, SIDEBAR_DIM)
         screen.blit(
             hint_surf,
@@ -672,6 +724,131 @@ class GameRenderer:
 
         # Close hint
         close = self._fonts["tiny"].render("Click anywhere or press Esc to close", True, SIDEBAR_DIM)
+        self._screen.blit(close, (px + (pw - close.get_width()) // 2, py + ph - 22))
+
+    def _draw_event_overlay(self, snap: WorldSnapshot) -> None:
+        if self._inspected_event is None or self._inspected_event >= len(snap.recent_events):
+            return
+        day, phase, actor, action_type, detail, location = snap.recent_events[self._inspected_event]
+
+        backdrop = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
+        backdrop.fill((0, 0, 0, 180))
+        self._screen.blit(backdrop, (0, 0))
+
+        pw, ph = 560, 380
+        px = (WINDOW_W - pw) // 2
+        py = (WINDOW_H - ph) // 2
+        panel = pygame.Rect(px, py, pw, ph)
+        color = EVENT_COLORS.get(action_type, EVENT_DEFAULT_COLOR)
+        pygame.draw.rect(self._screen, (28, 28, 50), panel, border_radius=8)
+        pygame.draw.rect(self._screen, color, panel, width=2, border_radius=8)
+
+        cx, cy = px + 22, py + 18
+
+        # Header: action type + actor
+        header = self._fonts["large"].render(f"{action_type}  —  {actor}", True, color)
+        self._screen.blit(header, (cx, cy))
+        cy += 32
+
+        # Metadata row
+        meta = f"Day {day}  ·  {phase}  ·  @ {location}"
+        meta_surf = self._fonts["small"].render(meta, True, SIDEBAR_DIM)
+        self._screen.blit(meta_surf, (cx, cy))
+        cy += 26
+
+        pygame.draw.line(self._screen, DIVIDER_COLOR, (cx, cy), (px + pw - 22, cy))
+        cy += 12
+
+        # Full detail text, word-wrapped
+        words = detail.split()
+        line = ""
+        for word in words:
+            candidate = (line + " " + word).strip()
+            if len(candidate) > 64:
+                self._screen.blit(self._fonts["small"].render(line, True, SIDEBAR_TEXT), (cx, cy))
+                cy += 20
+                line = word
+                if cy > py + ph - 48:
+                    self._screen.blit(self._fonts["small"].render(line + " …", True, SIDEBAR_TEXT), (cx, cy))
+                    line = ""
+                    break
+            else:
+                line = candidate
+        if line and cy <= py + ph - 48:
+            self._screen.blit(self._fonts["small"].render(line, True, SIDEBAR_TEXT), (cx, cy))
+
+        close = self._fonts["tiny"].render("Click anywhere or press Esc to close", True, SIDEBAR_DIM)
+        self._screen.blit(close, (px + (pw - close.get_width()) // 2, py + ph - 22))
+
+    def _draw_market_overlay(self, snap: WorldSnapshot) -> None:
+        backdrop = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
+        backdrop.fill((0, 0, 0, 180))
+        self._screen.blit(backdrop, (0, 0))
+
+        pw, ph = 600, 460
+        px = (WINDOW_W - pw) // 2
+        py = (WINDOW_H - ph) // 2
+        panel = pygame.Rect(px, py, pw, ph)
+        gold = BUILDING_COLORS["Market"]
+        pygame.draw.rect(self._screen, (28, 22, 10), panel, border_radius=8)
+        pygame.draw.rect(self._screen, gold, panel, width=2, border_radius=8)
+
+        cx, cy = px + 22, py + 18
+
+        title = self._fonts["large"].render("Market Board", True, gold)
+        self._screen.blit(title, (cx, cy))
+        cy += 36
+
+        pygame.draw.line(self._screen, DIVIDER_COLOR, (cx, cy), (px + pw - 22, cy))
+        cy += 12
+
+        # Offers for Sale
+        offers_label = self._fonts["bold"].render("Offers for Sale", True, (80, 220, 80))
+        self._screen.blit(offers_label, (cx, cy))
+        cy += 22
+
+        open_offers = [o for o in snap.market_offers if o[1] is None]
+        private_offers = [o for o in snap.market_offers if o[1] is not None]
+        if not snap.market_offers:
+            none_surf = self._fonts["small"].render("(no active offers)", True, SIDEBAR_DIM)
+            self._screen.blit(none_surf, (cx + 8, cy))
+            cy += 20
+        else:
+            for seller, buyer, item, qty, price in open_offers:
+                txt = f"  {seller} sells {qty}x {item} @ {price} coins  [open]"
+                self._screen.blit(self._fonts["small"].render(txt, True, SIDEBAR_TEXT), (cx, cy))
+                cy += 18
+            for seller, buyer, item, qty, price in private_offers:
+                txt = f"  {seller} → {buyer}: {qty}x {item} @ {price} coins"
+                self._screen.blit(self._fonts["small"].render(txt, True, SIDEBAR_DIM), (cx, cy))
+                cy += 18
+
+        cy += 10
+        pygame.draw.line(self._screen, DIVIDER_COLOR, (cx, cy), (px + pw - 22, cy))
+        cy += 12
+
+        # Buy Requests
+        requests_label = self._fonts["bold"].render("Buy Requests", True, (80, 200, 220))
+        self._screen.blit(requests_label, (cx, cy))
+        cy += 22
+
+        open_requests = [r for r in snap.market_requests if r[1] is None]
+        private_requests = [r for r in snap.market_requests if r[1] is not None]
+        if not snap.market_requests:
+            none_surf = self._fonts["small"].render("(no active requests)", True, SIDEBAR_DIM)
+            self._screen.blit(none_surf, (cx + 8, cy))
+            cy += 20
+        else:
+            for buyer, seller, item, qty, price in open_requests:
+                txt = f"  {buyer} wants {qty}x {item}, pays {price} coins  [open]"
+                self._screen.blit(self._fonts["small"].render(txt, True, SIDEBAR_TEXT), (cx, cy))
+                cy += 18
+            for buyer, seller, item, qty, price in private_requests:
+                txt = f"  {buyer} ← {seller}: {qty}x {item} @ {price} coins"
+                self._screen.blit(self._fonts["small"].render(txt, True, SIDEBAR_DIM), (cx, cy))
+                cy += 18
+
+        close = self._fonts["tiny"].render("Click anywhere or [M] / Esc to close", True, SIDEBAR_DIM)
         self._screen.blit(close, (px + (pw - close.get_width()) // 2, py + ph - 22))
 
     def _draw_pause_banner(self) -> None:
