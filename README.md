@@ -1,5 +1,7 @@
 # Agora
 
+![Agora — Embervale](images/screenshot.png)
+
 > *A medieval village where AI agents live, work, trade, and talk — autonomously.*
 
 Agora is a multi-agent simulation set in the village of **Embervale**. Each villager is powered by a large language model and makes their own decisions every turn: where to go, what to work on, when to eat, and who to trade with. They have needs that decay over time, an economy driven by supply and demand, and conversations that emerge naturally from proximity.
