@@ -53,6 +53,8 @@ Guidelines:
 - During NIGHT you should REST (sleep).
 - During DAWN consider waking up and starting your day.
 - Conversations with nearby villagers happen naturally — focus on positioning yourself where you want to be.
+- If you are a producer (Farmer, Blacksmith): WORK is your most important action. Do not skip farming or smithing just because goods are currently available on the market — supply will run out if you stop producing. Check your [DUTY] reminder each turn.
+- Do not rely on the market as a substitute for doing your own job. Market orders expire and supply is limited.
 - Respond ONLY with the JSON object, nothing else.
 """
 
@@ -208,9 +210,13 @@ class VillagerAgent:
         if self.role == "Farmer":
             tools = self.inventory.get("tools", 0)
             if tools == 0:
-                lines.append("[WARNING] You have NO tools — you cannot farm! Buy tools from Bjorn the Blacksmith.")
+                lines.append("[WARNING] You have NO tools — you cannot farm! Your PRIMARY task right now is to buy tools from Bjorn the Blacksmith (post a market BUY request or go to the Blacksmith to trade directly).")
             else:
-                lines.append(f"Farming: you have {tools} tool(s). Each WORK consumes 1 tool and produces 2 food.")
+                food_in_inv = self.inventory.get("food", 0)
+                lines.append(f"[DUTY] Your PRIMARY job is to farm. You have {tools} tool(s) and {food_in_inv} food. WORK at the Farm to produce food — the village depends on your harvest. Only skip farming if your energy or hunger is critically low.")
+        elif self.role == "Blacksmith":
+            tools_in_inv = self.inventory.get("tools", 0)
+            lines.append(f"[DUTY] Your PRIMARY job is to forge tools. You have {tools_in_inv} tools in stock. WORK at the Blacksmith to produce tools — the Farmer cannot grow food without them. Only skip smithing if your energy or hunger is critically low.")
 
         lines.append("")
         lines.append("What do you do?")

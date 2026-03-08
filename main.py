@@ -101,7 +101,7 @@ def apply_needs_decay(agents: list[VillagerAgent], cfg: SimConfig):
     for agent in agents:
         agent.hunger = max(0, agent.hunger - 5)
         agent.sociality = max(0, agent.sociality - 5)
-        agent.fulfillment = max(0, agent.fulfillment - 3)
+        agent.fulfillment = max(0, agent.fulfillment - 5)
         if agent.is_starving:
             agent.energy = min(agent.energy, cfg.starving_energy_cap)
 
