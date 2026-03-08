@@ -1,0 +1,15 @@
+[project]
+name = "agora"
+version = "0.1.0"
+description = "A medieval village simulation where LLM-powered agents live, work, trade, and interact autonomously."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "agno",
+    "openai",
+    "rich",
+    "sqlalchemy",
+    "aiosqlite",
+    "pygame>=2.6.1",
+    "python-dotenv",
+]
