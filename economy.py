@@ -18,12 +18,9 @@ PRODUCTION_RULES: dict[tuple[str, str], tuple[str, int, int]] = {
 def compute_market_rates(agents: list[VillagerAgent], base_prices: dict[str, int]) -> dict[str, int]:
     rates: dict[str, int] = {}
     for item, base in base_prices.items():
-        total_supply = sum(a.inventory.get(item, 0) for a in agents)
-        if total_supply == 0:
-            rates[item] = base * 2
-        else:
-            raw = round(base * 6 / total_supply)
-            rates[item] = max(1, min(base * 3, raw))
+        total_supply = max(1, sum(a.inventory.get(item, 0) for a in agents))
+        raw = round(base * 6 / total_supply)
+        rates[item] = max(1, min(base * 3, raw))
     return rates
 
 

@@ -55,6 +55,8 @@ Guidelines:
 - Conversations with nearby villagers happen naturally — focus on positioning yourself where you want to be.
 - If you are a producer (Farmer, Blacksmith): WORK is your most important action. Do not skip farming or smithing just because goods are currently available on the market — supply will run out if you stop producing. Check your [DUTY] reminder each turn.
 - Do not rely on the market as a substitute for doing your own job. Market orders expire and supply is limited.
+- ACTIVELY respond to market orders each turn. Check the [ACTION] hints for specific opportunities.
+- When evaluating a trade, compare the offered price to the "Market rates" shown in your situation. As a seller, accept if the price is fair (at or above market rate); if the price is too low, post a counteroffer: SELL target="" detail=item:qty:<your price> to post your own open market offer at your preferred price, or SELL target=<buyer name> detail=item:qty:<your price> to make a targeted counteroffer they can accept. As a buyer, accept if the price is fair (at or below market rate); if too high, post a counteroffer: BUY target="" detail=item:qty:<your price> or BUY target=<seller name> detail=item:qty:<your price>. Do not ignore market orders — they expire!
 - Respond ONLY with the JSON object, nothing else.
 """
 
@@ -211,12 +213,39 @@ class VillagerAgent:
             tools = self.inventory.get("tools", 0)
             if tools == 0:
                 lines.append("[WARNING] You have NO tools — you cannot farm! Your PRIMARY task right now is to buy tools from Bjorn the Blacksmith (post a market BUY request or go to the Blacksmith to trade directly).")
+                # Highlight any open tool sell offers
+                tool_offers = [o for o in open_offers if o.item == "tools"]
+                market_tool_rate = world.market_rates.get("tools", "?")
+                for o in tool_offers:
+                    verdict = "FAIR" if isinstance(market_tool_rate, int) and o.price <= market_tool_rate else "ABOVE market rate"
+                    lines.append(f"  [ACTION] {o.seller} is selling {o.quantity}x tools for {o.price} coins (market rate: ~{market_tool_rate}c) [{verdict}].")
+                    lines.append(f"    → Accept: BUY target={o.seller} detail=tools:{o.quantity}:{o.price}")
+                    if isinstance(market_tool_rate, int) and o.price > market_tool_rate:
+                        lines.append(f"    → Counteroffer lower: BUY target={o.seller} detail=tools:{o.quantity}:{market_tool_rate}")
             else:
                 food_in_inv = self.inventory.get("food", 0)
                 lines.append(f"[DUTY] Your PRIMARY job is to farm. You have {tools} tool(s) and {food_in_inv} food. WORK at the Farm to produce food — the village depends on your harvest. Only skip farming if your energy or hunger is critically low.")
+                # Highlight open food buy requests the farmer can fulfill
+                market_food_rate = world.market_rates.get("food", "?")
+                food_requests = [r for r in open_requests if r.item == "food" and food_in_inv >= r.quantity]
+                for r in food_requests:
+                    verdict = "FAIR" if isinstance(market_food_rate, int) and r.price >= market_food_rate else "BELOW market rate"
+                    lines.append(f"  [ACTION] {r.buyer} wants {r.quantity}x food for {r.price} coins (market rate: ~{market_food_rate}c) [{verdict}].")
+                    lines.append(f"    → Accept: SELL target={r.buyer} detail=food:{r.quantity}:{r.price}")
+                    if isinstance(market_food_rate, int) and r.price < market_food_rate:
+                        lines.append(f"    → Counteroffer higher: SELL target={r.buyer} detail=food:{r.quantity}:{market_food_rate}")
         elif self.role == "Blacksmith":
             tools_in_inv = self.inventory.get("tools", 0)
             lines.append(f"[DUTY] Your PRIMARY job is to forge tools. You have {tools_in_inv} tools in stock. WORK at the Blacksmith to produce tools — the Farmer cannot grow food without them. Only skip smithing if your energy or hunger is critically low.")
+            # Highlight open tool buy requests the blacksmith can fulfill
+            market_tool_rate = world.market_rates.get("tools", "?")
+            tool_requests = [r for r in open_requests if r.item == "tools" and tools_in_inv >= r.quantity]
+            for r in tool_requests:
+                verdict = "FAIR" if isinstance(market_tool_rate, int) and r.price >= market_tool_rate else "BELOW market rate"
+                lines.append(f"  [ACTION] {r.buyer} wants {r.quantity}x tools for {r.price} coins (market rate: ~{market_tool_rate}c) [{verdict}].")
+                lines.append(f"    → Accept: SELL target={r.buyer} detail=tools:{r.quantity}:{r.price}")
+                if isinstance(market_tool_rate, int) and r.price < market_tool_rate:
+                    lines.append(f"    → Counteroffer higher: SELL target={r.buyer} detail=tools:{r.quantity}:{market_tool_rate}")
 
         lines.append("")
         lines.append("What do you do?")

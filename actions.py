@@ -127,6 +127,29 @@ def _handle_sell(agent: VillagerAgent, action: dict, ctx: ActionContext) -> Worl
     if target not in ctx.agent_map:
         return _mk_event(ctx, agent, ActionType.SELL,
             f"{agent.name}'s sell offer failed: unknown target '{target}'", location)
+
+    buyer_agent = ctx.agent_map[target]
+    # Path 1: fulfill a pending buy request (targeted or open market) — no co-presence needed
+    matching_request = next(
+        (r for r in ctx.world.pending_requests
+         if r.buyer == target and (r.seller == agent.name or r.seller is None)
+         and r.item == item and r.quantity == qty and r.price == price),
+        None,
+    )
+    if matching_request and buyer_agent.inventory.get("coins", 0) >= price:
+        if agent.inventory.get(item, 0) < qty:
+            return _mk_event(ctx, agent, ActionType.SELL,
+                f"{agent.name}'s sell offer failed: not enough {item} "
+                f"(have {agent.inventory.get(item, 0)}, need {qty})", location)
+        _decrement_inventory(buyer_agent.inventory, "coins", price)
+        _increment_inventory(buyer_agent.inventory, item, qty)
+        _increment_inventory(agent.inventory, "coins", price)
+        _decrement_inventory(agent.inventory, item, qty)
+        ctx.world.pending_requests.remove(matching_request)
+        return _mk_event(ctx, agent, ActionType.TRADE,
+            f"TRADE: {agent.name} sold {qty}x {item} to {target} for {price} coins (fulfilled request)", location)
+
+    # Path 2: post a P2P sell offer (requires co-presence)
     if ctx.world.agent_locations.get(target) != location:
         target_loc = ctx.world.agent_locations.get(target, "unknown")
         return _mk_event(ctx, agent, ActionType.SELL,
@@ -135,24 +158,6 @@ def _handle_sell(agent: VillagerAgent, action: dict, ctx: ActionContext) -> Worl
         return _mk_event(ctx, agent, ActionType.SELL,
             f"{agent.name}'s sell offer failed: not enough {item} "
             f"(have {agent.inventory.get(item, 0)}, need {qty})", location)
-
-    buyer_agent = ctx.agent_map[target]
-    # Path 1: fulfill a pending buy request (targeted or open market)
-    matching_request = next(
-        (r for r in ctx.world.pending_requests
-         if r.buyer == target and (r.seller == agent.name or r.seller is None)
-         and r.item == item and r.quantity == qty and r.price == price),
-        None,
-    )
-    if matching_request and buyer_agent.inventory.get("coins", 0) >= price:
-        _decrement_inventory(buyer_agent.inventory, "coins", price)
-        _increment_inventory(buyer_agent.inventory, item, qty)
-        _increment_inventory(agent.inventory, "coins", price)
-        _decrement_inventory(agent.inventory, item, qty)
-        ctx.world.pending_requests.remove(matching_request)
-        return _mk_event(ctx, agent, ActionType.TRADE,
-            f"TRADE: {agent.name} sold {qty}x {item} to {target} for {price} coins (fulfilled request)", location)
-    # Path 2: post a P2P sell offer
     ctx.world.pending_offers.append(TradeOffer(
         seller=agent.name, buyer=target, item=item, quantity=qty, price=price,
         expires_tick=ctx.world.current_tick() + 10,
